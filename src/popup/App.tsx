@@ -6,6 +6,7 @@ import type { TabGameState, UserSettings } from "../shared/types";
 import { EXTENSION_NAME } from "../shared/constants";
 import { AutoPlayControl } from "./components/AutoPlayControl";
 import { MoveDisplay } from "./components/MoveDisplay";
+import { MoveLinesControl } from "./components/MoveLinesControl";
 import { SiteStatus } from "./components/SiteStatus";
 import { SpeedSlider } from "./components/SpeedSlider";
 import { StatusIndicator } from "./components/StatusIndicator";
@@ -75,6 +76,12 @@ export function App() {
     await sendToBackground({ type: "SET_DELAY", value });
   };
 
+  const onTopMoves = async (value: 1 | 2 | 3) => {
+    const res = await sendToBackground<UserSettings>({ type: "SET_TOP_MOVES", value });
+    if (res.ok && res.data) setSettings(res.data);
+    else setSettings((s) => (s ? { ...s, topMovesCount: value } : s));
+  };
+
   const completeOnboarding = async () => {
     const next = await saveSettings({ onboardingComplete: true });
     setSettings(next);
@@ -126,10 +133,16 @@ export function App() {
         </button>
       </header>
 
+      <MoveLinesControl
+        value={settings.topMovesCount}
+        onChange={(v) => void onTopMoves(v)}
+      />
+
       <MoveDisplay
         loading={analyzing}
         analysis={state.analysis}
         notation={settings.moveNotation}
+        topMovesCount={settings.topMovesCount}
       />
 
       <StrengthSlider value={settings.strength} onChange={(v) => void onStrength(v)} />

@@ -44,6 +44,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   startState: "always-manual",
   confirmAutoPlay: false,
   moveNotation: "san",
+  topMovesCount: 1,
   debugMode: false,
   engineSettings: DEFAULT_ENGINE_SETTINGS,
   stopOnGameEnd: true,

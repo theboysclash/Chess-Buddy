@@ -32,6 +32,8 @@ export function validateSettings(raw: Partial<UserSettings> | null | undefined):
   if (!["san", "uci", "coordinates"].includes(merged.moveNotation)) {
     merged.moveNotation = base.moveNotation;
   }
+  const top = Math.round(Number(merged.topMovesCount) || 1);
+  merged.topMovesCount = top <= 1 ? 1 : top === 2 ? 2 : 3;
   if (!["always-manual", "remember", "always-auto"].includes(merged.startState)) {
     merged.startState = base.startState;
   }

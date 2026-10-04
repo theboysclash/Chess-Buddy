@@ -95,5 +95,9 @@ export function mergeAnalysisResult(
   partial: AnalysisResult,
 ): AnalysisResult {
   const enriched = enrichMoveWithSan(fen, partial.bestMove);
-  return { ...partial, bestMove: enriched, san: enriched.san };
+  const rankedMoves = partial.rankedMoves?.map((line) => {
+    const move = enrichMoveWithSan(fen, line.move);
+    return { ...line, move, san: move.san };
+  });
+  return { ...partial, bestMove: enriched, san: enriched.san, rankedMoves };
 }

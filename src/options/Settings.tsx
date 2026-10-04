@@ -111,6 +111,22 @@ export function SettingsPage() {
                 onChange={(e) => void update({ autoAnalyze: e.target.checked })}
               />
             </div>
+            <div className="setting-row">
+              <label>
+                Move lines in popup
+                <span>Show best move only, or top 2–3 engine lines</span>
+              </label>
+              <select
+                value={settings.topMovesCount}
+                onChange={(e) =>
+                  void update({ topMovesCount: Number(e.target.value) as UserSettings["topMovesCount"] })
+                }
+              >
+                <option value={1}>Best move only</option>
+                <option value={2}>Top 2 moves</option>
+                <option value={3}>Top 3 moves</option>
+              </select>
+            </div>
           </section>
         )}
 

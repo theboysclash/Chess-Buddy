@@ -54,6 +54,7 @@ async function analyzeForTab(tabId: number, fen: string): Promise<void> {
       {
         strength: settings.strength,
         engine: getEngineSettingsForStrength(settings.strength, settings.engineSettings),
+        topMovesCount: settings.topMovesCount,
       },
     );
     const merged = mergeAnalysisResult(fen, result);
@@ -108,9 +109,22 @@ onMessage(async (message, sender): Promise<MessageResponse> => {
 
     case "SET_STRENGTH": {
       settings = await saveSettings({ strength: message.value });
-      if (tabId) {
-        const state = getTabState(tabId);
-        if (state.position?.fen) void analyzeForTab(tabId, state.position.fen);
+      const active = await chrome.tabs.query({ active: true, currentWindow: true });
+      const id = tabId ?? active[0]?.id;
+      if (id) {
+        const state = getTabState(id);
+        if (state.position?.fen) void analyzeForTab(id, state.position.fen);
+      }
+      return { ok: true, data: settings };
+    }
+
+    case "SET_TOP_MOVES": {
+      settings = await saveSettings({ topMovesCount: message.value });
+      const active = await chrome.tabs.query({ active: true, currentWindow: true });
+      const id = tabId ?? active[0]?.id;
+      if (id) {
+        const state = getTabState(id);
+        if (state.position?.fen) void analyzeForTab(id, state.position.fen);
       }
       return { ok: true, data: settings };
     }
