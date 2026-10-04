@@ -44,6 +44,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   startState: "always-manual",
   confirmAutoPlay: false,
   moveNotation: "san",
+  topMovesCount: 1,
   debugMode: false,
   engineSettings: DEFAULT_ENGINE_SETTINGS,
   stopOnGameEnd: true,
@@ -63,15 +64,15 @@ export const SUPPORTED_SITES = [
   },
   {
     id: "lichess",
-    name: "Lichess (preview)",
+    name: "Lichess",
     hostnames: ["lichess.org"],
-    automation: false,
+    automation: true,
   },
   {
     id: "chesscom",
-    name: "Chess.com (preview)",
+    name: "Chess.com",
     hostnames: ["chess.com", "www.chess.com"],
-    automation: false,
+    automation: true,
   },
 ] as const;
 

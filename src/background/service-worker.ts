@@ -54,6 +54,7 @@ async function analyzeForTab(tabId: number, fen: string): Promise<void> {
       {
         strength: settings.strength,
         engine: getEngineSettingsForStrength(settings.strength, settings.engineSettings),
+        topMovesCount: settings.topMovesCount,
       },
     );
     const merged = mergeAnalysisResult(fen, result);
@@ -108,17 +109,32 @@ onMessage(async (message, sender): Promise<MessageResponse> => {
 
     case "SET_STRENGTH": {
       settings = await saveSettings({ strength: message.value });
-      if (tabId) {
-        const state = getTabState(tabId);
-        if (state.position?.fen) void analyzeForTab(tabId, state.position.fen);
+      const active = await chrome.tabs.query({ active: true, currentWindow: true });
+      const id = tabId ?? active[0]?.id;
+      if (id) {
+        const state = getTabState(id);
+        if (state.position?.fen) void analyzeForTab(id, state.position.fen);
+      }
+      return { ok: true, data: settings };
+    }
+
+    case "SET_TOP_MOVES": {
+      settings = await saveSettings({ topMovesCount: message.value });
+      const active = await chrome.tabs.query({ active: true, currentWindow: true });
+      const id = tabId ?? active[0]?.id;
+      if (id) {
+        const state = getTabState(id);
+        if (state.position?.fen) void analyzeForTab(id, state.position.fen);
       }
       return { ok: true, data: settings };
     }
 
     case "SET_AUTO_PLAY": {
       settings = await saveSettings({ autoPlay: message.enabled });
-      if (tabId) {
-        setTabState(tabId, {
+      const active = await chrome.tabs.query({ active: true, currentWindow: true });
+      const id = tabId ?? active[0]?.id;
+      if (id) {
+        setTabState(id, {
           autoPlayActive: message.enabled,
           statusMessage: message.enabled ? "Auto Play active" : "Manual move mode",
           buddyState: message.enabled ? "AUTO_PLAYING" : "MOVE_READY",
@@ -155,10 +171,13 @@ onMessage(async (message, sender): Promise<MessageResponse> => {
       if (!tabId) return { ok: false, error: "No tab" };
       const prev = getTabState(tabId);
       const next = setTabState(tabId, message.state);
+      const fenChanged = next.position?.fen !== prev.position?.fen;
+      const needsInitial =
+        next.position?.fen && !prev.analysis && next.buddyState !== "UNSUPPORTED";
       if (
         settings.autoAnalyze &&
         next.position?.fen &&
-        next.position.fen !== prev.position?.fen &&
+        (fenChanged || needsInitial) &&
         next.buddyState !== "UNSUPPORTED"
       ) {
         void analyzeForTab(tabId, next.position.fen);

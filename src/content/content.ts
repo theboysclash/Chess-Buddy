@@ -4,11 +4,18 @@ import { logger } from "../shared/logger";
 import { buildTabState } from "./chess-state";
 import { AutoPlayController } from "./move-executor";
 import { LocalTestAdapter } from "./site-adapters/local-test-adapter";
+import { ChessComAdapter } from "./site-adapters/chess-com-adapter";
+import { LichessAdapter } from "./site-adapters/lichess-adapter";
 import { GenericAdapter } from "./site-adapters/generic-adapter";
 import type { SiteAdapter } from "./site-adapters/base-adapter";
 import type { ExtensionMessage, MessageResponse, TabGameState, UserSettings } from "../shared/types";
 
-const adapters: SiteAdapter[] = [new LocalTestAdapter(), new GenericAdapter()];
+const adapters: SiteAdapter[] = [
+  new LocalTestAdapter(),
+  new ChessComAdapter(),
+  new LichessAdapter(),
+  new GenericAdapter(),
+];
 const autoPlay = new AutoPlayController();
 
 let settings: UserSettings | null = null;
@@ -54,6 +61,7 @@ async function pushState(partial?: Partial<TabGameState>): Promise<void> {
 
 function handleAnalysisReady(): void {
   if (!settings?.autoPlay || !activeAdapter || !lastState?.analysis || !lastState.position) return;
+  if (!activeAdapter.isOurTurn()) return;
   void autoPlay.maybeExecute({
     settings,
     adapter: activeAdapter,
@@ -113,8 +121,15 @@ async function handleMessage(message: ExtensionMessage): Promise<MessageResponse
     case "SET_AUTO_PLAY": {
       if (!message.enabled) autoPlay.stop();
       else autoPlay.reset();
-      await refreshSettings();
-      await pushState();
+      settings = { ...(await loadSettings()), autoPlay: message.enabled };
+      await pushState({
+        autoPlayActive: message.enabled,
+        statusMessage: message.enabled ? "Auto Play active" : "Manual move mode",
+        buddyState: message.enabled ? "AUTO_PLAYING" : lastState?.buddyState,
+      });
+      if (message.enabled && lastState?.analysis && lastState.position) {
+        handleAnalysisReady();
+      }
       return { ok: true };
     }
     default:

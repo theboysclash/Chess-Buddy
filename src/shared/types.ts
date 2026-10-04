@@ -38,15 +38,26 @@ export interface EngineSettings {
   skillLevel?: number;
   depthCap?: number;
   nodesCap?: number;
+  uciElo?: number;
+  limitStrength?: boolean;
 }
 
 export interface AnalysisSettings {
   strength: number;
   engine: EngineSettings;
+  topMovesCount: number;
+}
+
+export interface RankedMove {
+  rank: number;
+  move: ChessMove;
+  evaluation?: number;
+  san?: string;
 }
 
 export interface AnalysisResult {
   bestMove: ChessMove;
+  rankedMoves?: RankedMove[];
   evaluation?: number;
   depth?: number;
   confidence?: number;
@@ -92,6 +103,7 @@ export interface UserSettings {
   startState: StartState;
   confirmAutoPlay: boolean;
   moveNotation: MoveNotation;
+  topMovesCount: 1 | 2 | 3;
   debugMode: boolean;
   engineSettings: EngineSettings;
   stopOnGameEnd: boolean;
@@ -109,6 +121,7 @@ export type ExtensionMessage =
   | { type: "ANALYZE_POSITION"; fen: string; strength: number }
   | { type: "STOP_ANALYSIS" }
   | { type: "SET_STRENGTH"; value: number }
+  | { type: "SET_TOP_MOVES"; value: 1 | 2 | 3 }
   | { type: "SET_AUTO_PLAY"; enabled: boolean }
   | { type: "SET_DELAY"; value: number }
   | { type: "EXECUTE_MOVE"; move: ChessMove }

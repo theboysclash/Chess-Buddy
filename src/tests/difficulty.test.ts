@@ -7,9 +7,9 @@ import {
 import { DEFAULT_ENGINE_SETTINGS } from "../shared/constants";
 
 describe("difficulty", () => {
-  it("maps strength labels", () => {
+  it("maps strength labels and Elo", () => {
     expect(getStrengthLabel(1)).toBe("Casual");
-    expect(getStrengthLabel(5)).toBe("Balanced");
+    expect(getStrengthLabel(8)).toBe("Expert");
     expect(getStrengthLabel(10)).toBe("Maximum");
   });
 

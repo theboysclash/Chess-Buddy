@@ -1,20 +1,52 @@
 import type { EngineSettings } from "../shared/types";
 
-export function getStrengthLabel(strength: number): string {
-  const labels = [
-    "Casual",
-    "Casual",
-    "Beginner",
-    "Beginner",
-    "Balanced",
-    "Strong",
-    "Strong",
-    "Expert",
-    "Expert",
-    "Maximum",
-  ];
+/** Approximate target Elo per strength step (1–10). */
+export const STRENGTH_ELO_TABLE: readonly number[] = [
+  800,
+  1000,
+  1200,
+  1400,
+  1600,
+  1800,
+  2000,
+  2200,
+  2400,
+  3200,
+];
+
+const TIER_LABELS: { maxElo: number; label: string }[] = [
+  { maxElo: 1100, label: "Casual" },
+  { maxElo: 1300, label: "Beginner" },
+  { maxElo: 1700, label: "Intermediate" },
+  { maxElo: 2100, label: "Strong" },
+  { maxElo: 2500, label: "Expert" },
+  { maxElo: Infinity, label: "Maximum" },
+];
+
+export function strengthToElo(strength: number): number {
   const index = Math.min(9, Math.max(0, Math.round(strength) - 1));
-  return labels[index];
+  return STRENGTH_ELO_TABLE[index];
+}
+
+export function getStrengthTier(elo: number): string {
+  for (const tier of TIER_LABELS) {
+    if (elo <= tier.maxElo) return tier.label;
+  }
+  return "Maximum";
+}
+
+export function getStrengthLabel(strength: number): string {
+  const elo = strengthToElo(strength);
+  const tier = getStrengthTier(elo);
+  if (strength >= 10) return `${tier}`;
+  return tier;
+}
+
+export function formatStrengthDisplay(strength: number): string {
+  const elo = strengthToElo(strength);
+  const tier = getStrengthTier(elo);
+  if (strength >= 10) return `${tier} · Unrated cap`;
+  return `${tier} · ${elo} Elo`;
 }
 
 export function getEngineSettingsForStrength(
@@ -22,18 +54,22 @@ export function getEngineSettingsForStrength(
   base: EngineSettings,
 ): EngineSettings {
   const s = Math.min(10, Math.max(1, Math.round(strength)));
+  const elo = strengthToElo(s);
   const skillLevel = Math.round((s / 10) * 20);
-  const depthCap = Math.round(6 + s * 1.2);
-  const timeMs = Math.round(400 + s * 180);
-  const nodesCap = Math.round(50_000 + s * s * 25_000);
+  const depthCap = Math.round(6 + s * 1.4);
+  const timeMs = Math.round(500 + s * 200);
+  const nodesCap = Math.round(50_000 + s * s * 30_000);
+  const limitStrength = s < 10;
 
   return {
     ...base,
     maxAnalysisTimeMs: Math.min(base.maxAnalysisTimeMs, timeMs),
-    maxDepth: Math.min(base.maxDepth ?? 20, depthCap),
+    maxDepth: Math.min(base.maxDepth ?? 22, depthCap),
     skillLevel,
     depthCap,
     nodesCap,
+    uciElo: limitStrength ? elo : undefined,
+    limitStrength,
   };
 }
 
