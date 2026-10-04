@@ -1,0 +1,76 @@
+import type { EngineSettings } from "../shared/types";
+
+export function getStrengthLabel(strength: number): string {
+  const labels = [
+    "Casual",
+    "Casual",
+    "Beginner",
+    "Beginner",
+    "Balanced",
+    "Strong",
+    "Strong",
+    "Expert",
+    "Expert",
+    "Maximum",
+  ];
+  const index = Math.min(9, Math.max(0, Math.round(strength) - 1));
+  return labels[index];
+}
+
+export function getEngineSettingsForStrength(
+  strength: number,
+  base: EngineSettings,
+): EngineSettings {
+  const s = Math.min(10, Math.max(1, Math.round(strength)));
+  const skillLevel = Math.round((s / 10) * 20);
+  const depthCap = Math.round(6 + s * 1.2);
+  const timeMs = Math.round(400 + s * 180);
+  const nodesCap = Math.round(50_000 + s * s * 25_000);
+
+  return {
+    ...base,
+    maxAnalysisTimeMs: Math.min(base.maxAnalysisTimeMs, timeMs),
+    maxDepth: Math.min(base.maxDepth ?? 20, depthCap),
+    skillLevel,
+    depthCap,
+    nodesCap,
+  };
+}
+
+/** Pick move index for lower strengths (0 = best). */
+export function pickMoveIndex(strength: number, candidateCount: number): number {
+  if (candidateCount <= 1) return 0;
+  const s = Math.min(10, Math.max(1, Math.round(strength)));
+  if (s >= 9) return 0;
+  if (s >= 7) return Math.random() < 0.85 ? 0 : 1;
+  if (s >= 5) return Math.random() < 0.7 ? 0 : Math.min(1, candidateCount - 1);
+  if (s >= 3) {
+    const roll = Math.random();
+    if (roll < 0.5) return 0;
+    if (roll < 0.8) return Math.min(1, candidateCount - 1);
+    return Math.min(2, candidateCount - 1);
+  }
+  const maxIdx = Math.min(3, candidateCount - 1);
+  return Math.floor(Math.random() * (maxIdx + 1));
+}
+
+export function delaySecToLabel(seconds: number): string {
+  if (seconds <= 1) return "Fast";
+  if (seconds >= 6) return "Deliberate";
+  return "Balanced";
+}
+
+export function formatDelay(seconds: number): string {
+  const rounded = Math.round(seconds * 10) / 10;
+  return `${rounded} second${rounded === 1 ? "" : "s"}`;
+}
+
+export function applyRandomizedDelay(
+  baseSec: number,
+  enabled: boolean,
+  jitterSec: number,
+): number {
+  if (!enabled) return baseSec;
+  const jitter = (Math.random() * 2 - 1) * jitterSec;
+  return Math.max(0.5, Math.min(10, baseSec + jitter));
+}
