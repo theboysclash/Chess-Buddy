@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: node scripts/generate-icons.mjs
+
+      - name: Test
+        run: npm test
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package extension
+        run: node scripts/package-extension.mjs
+
+      - name: Read package version
+        id: version
+        run: echo "value=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.value }}-build.${{ github.run_number }}
+          name: Chess Buddy v${{ steps.version.outputs.value }} (build ${{ github.run_number }})
+          body: |
+            Installable Chrome extension build from `main` (commit ${{ github.sha }}).
+
+            ## Install in Chrome
+
+            1. Download **chess-buddy-chrome.zip** below.
+            2. Unzip to a folder (for example `chess-buddy-chrome`).
+            3. Open `chrome://extensions`, enable **Developer mode**.
+            4. Click **Load unpacked** and select the **unzipped folder** (the one that contains `manifest.json`).
+
+            Do not load the GitHub source repository root — it does not include a built manifest.
+          files: chess-buddy-chrome.zip
+          generate_release_notes: true
+          make_latest: true
