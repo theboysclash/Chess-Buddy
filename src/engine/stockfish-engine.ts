@@ -179,7 +179,7 @@ export class StockfishWorkerEngine implements ChessEngine {
         cleanup();
         this.worker?.postMessage("stop");
         reject(new Error("Analysis timeout"));
-      }, engineCfg.maxAnalysisTimeMs + 500);
+      }, engineCfg.maxAnalysisTimeMs + 2500);
 
       if (!this.worker) {
         reject(new Error("Worker missing"));
