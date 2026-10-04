@@ -118,7 +118,7 @@ export type ExtensionMessage =
   | { type: "GET_STATE" }
   | { type: "GET_SETTINGS" }
   | { type: "SET_SETTINGS"; settings: Partial<UserSettings> }
-  | { type: "ANALYZE_POSITION"; fen: string; strength: number }
+  | { type: "TRIGGER_ANALYSIS" }
   | { type: "STOP_ANALYSIS" }
   | { type: "SET_STRENGTH"; value: number }
   | { type: "SET_TOP_MOVES"; value: 1 | 2 | 3 }
