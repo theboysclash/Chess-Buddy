@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Chess Buddy Test Board</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        color: #1a1c1f;
+        background: #f4f2ef;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        display: grid;
+        gap: 16px;
+        max-width: 720px;
+      }
+      .board {
+        width: 320px;
+        aspect-ratio: 1;
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        border: 1px solid #ccc;
+      }
+      .sq {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        user-select: none;
+        cursor: pointer;
+      }
+      .sq.light { background: #e8e1d3; }
+      .sq.dark { background: #b58863; }
+      .sq.selected { outline: 2px solid #3d5a73; }
+      .panel {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      button, select, input {
+        height: 32px;
+        border-radius: 999px;
+        border: 1px solid #ccc;
+        padding: 0 12px;
+        background: #fff;
+      }
+      code { font-size: 12px; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <h1>Chess Buddy Local Test Board</h1>
+    <p id="cb-test-board">Interactive board for adapter testing.</p>
+    <div class="board" id="board"></div>
+    <div class="panel">
+      <button type="button" id="reset">Reset</button>
+      <button type="button" id="toggle-turn">Toggle Our Turn</button>
+      <label>
+        Load FEN
+        <input id="fen-input" style="width: 360px" />
+      </label>
+      <button type="button" id="load-fen">Apply FEN</button>
+    </div>
+    <p>Status: <span id="cb-our-turn" data-active="true">Our turn</span></p>
+    <p>Game over: <span id="cb-game-over" data-active="false">No</span></p>
+    <p>FEN: <code id="cb-fen"></code></p>
+    <script type="module">
+      import { Chess } from "https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.8/+esm";
+
+      const START =
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+      const chess = new Chess(START);
+      let selected = null;
+      let ourTurn = true;
+
+      const boardEl = document.getElementById("board");
+      const fenEl = document.getElementById("cb-fen");
+      const ourTurnEl = document.getElementById("cb-our-turn");
+      const gameOverEl = document.getElementById("cb-game-over");
+
+      const pieceUnicode = {
+        p: "♟", r: "♜", n: "♞", b: "♝", q: "♛", k: "♚",
+        P: "♙", R: "♖", N: "♘", B: "♗", Q: "♕", K: "♔",
+      };
+
+      function syncHidden() {
+        fenEl.textContent = chess.fen();
+        ourTurnEl.dataset.active = ourTurn ? "true" : "false";
+        ourTurnEl.textContent = ourTurn ? "Our turn" : "Opponent turn";
+        const over = chess.isGameOver();
+        gameOverEl.dataset.active = over ? "true" : "false";
+        gameOverEl.textContent = over ? "Yes" : "No";
+        document.dispatchEvent(new Event("chess-buddy-board-updated"));
+      }
+
+      function render() {
+        boardEl.innerHTML = "";
+        const board = chess.board();
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            const sq = document.createElement("div");
+            const file = String.fromCharCode(97 + c);
+            const rank = 8 - r;
+            const square = `${file}${rank}`;
+            const piece = board[r][c];
+            sq.className = `sq ${(r + c) % 2 === 0 ? "light" : "dark"}`;
+            sq.dataset.square = square;
+            if (selected === square) sq.classList.add("selected");
+            sq.textContent = piece ? pieceUnicode[piece.color === "w" ? piece.type.toUpperCase() : piece.type] : "";
+            sq.addEventListener("click", () => onSquare(square));
+            boardEl.appendChild(sq);
+          }
+        }
+        syncHidden();
+      }
+
+      function onSquare(square) {
+        if (!ourTurn || chess.isGameOver()) return;
+        if (!selected) {
+          const piece = chess.get(square);
+          if (!piece || piece.color !== chess.turn()) return;
+          selected = square;
+          render();
+          return;
+        }
+        if (selected === square) {
+          selected = null;
+          render();
+          return;
+        }
+        try {
+          chess.move({ from: selected, to: square, promotion: "q" });
+          selected = null;
+          ourTurn = false;
+          render();
+          setTimeout(() => {
+            ourTurn = true;
+            syncHidden();
+          }, 400);
+        } catch {
+          const piece = chess.get(square);
+          if (piece && piece.color === chess.turn()) selected = square;
+          else selected = null;
+          render();
+        }
+      }
+
+      document.getElementById("reset").addEventListener("click", () => {
+        chess.load(START);
+        ourTurn = true;
+        selected = null;
+        render();
+      });
+
+      document.getElementById("toggle-turn").addEventListener("click", () => {
+        ourTurn = !ourTurn;
+        syncHidden();
+      });
+
+      document.getElementById("load-fen").addEventListener("click", () => {
+        const fen = document.getElementById("fen-input").value.trim();
+        try {
+          chess.load(fen);
+          selected = null;
+          render();
+        } catch (e) {
+          alert("Invalid FEN");
+        }
+      });
+
+      document.addEventListener("chess-buddy-execute-move", (event) => {
+        const { from, to, promotion } = event.detail;
+        try {
+          chess.move({ from, to, promotion: promotion ?? "q" });
+          ourTurn = false;
+          selected = null;
+          render();
+          setTimeout(() => {
+            ourTurn = true;
+            syncHidden();
+          }, 500);
+        } catch (e) {
+          console.error(e);
+        }
+      });
+
+      render();
+    </script>
+  </body>
+</html>
