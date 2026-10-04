@@ -9,6 +9,10 @@ describe("dom-board", () => {
     expect(normalizeFen(START)).toBe(START);
   });
 
+  it("rejects invalid board placement", () => {
+    expect(normalizeFen("8/8/8/8/8/8/8/8 w - - 0 1")).toBeNull();
+  });
+
   it("builds FEN from piece list", () => {
     const pieces = [
       { square: "a1", fenChar: "R" },

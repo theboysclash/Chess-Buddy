@@ -32,7 +32,7 @@ export function MoveDisplay({ loading, analysis, notation, topMovesCount }: Move
 
       {loading ? (
         <div className="move-value move-value-loading" aria-live="polite">
-          Calculating best move
+          Analyzing position
         </div>
       ) : showList ? (
         <ol className="move-ranked-list" aria-live="polite">

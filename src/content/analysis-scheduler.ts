@@ -1,5 +1,6 @@
 import type { UserSettings } from "../shared/types";
 import { analyzeInPage } from "./local-engine";
+import { normalizeFen } from "./dom-board";
 import { logger } from "../shared/logger";
 
 /** Board + side to move — ignore clock/halfmove churn from Chess.com. */
@@ -76,8 +77,17 @@ async function run(
   const gen = ++generation;
   onPhase("start");
 
+  const validFen = normalizeFen(fen);
+  if (!validFen) {
+    inFlight = false;
+    lastErrorKey = key;
+    lastErrorAt = Date.now();
+    onPhase("error", new Error("Invalid position"));
+    return;
+  }
+
   try {
-    const result = await analyzeInPage(fen, settings);
+    const result = await analyzeInPage(validFen, settings);
     if (gen !== generation) return;
     lastSuccessKey = key;
     lastErrorKey = null;
