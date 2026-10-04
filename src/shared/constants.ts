@@ -63,15 +63,15 @@ export const SUPPORTED_SITES = [
   },
   {
     id: "lichess",
-    name: "Lichess (preview)",
+    name: "Lichess",
     hostnames: ["lichess.org"],
-    automation: false,
+    automation: true,
   },
   {
     id: "chesscom",
-    name: "Chess.com (preview)",
+    name: "Chess.com",
     hostnames: ["chess.com", "www.chess.com"],
-    automation: false,
+    automation: true,
   },
 ] as const;
 

@@ -63,9 +63,11 @@ export function App() {
       const ok = window.confirm("Enable Auto Play? Chess Buddy will perform moves automatically.");
       if (!ok) return;
     }
-    setSettings((s) => (s ? { ...s, autoPlay: enabled } : s));
-    await sendToBackground({ type: "SET_AUTO_PLAY", enabled });
+    const res = await sendToBackground<UserSettings>({ type: "SET_AUTO_PLAY", enabled });
+    if (res.ok && res.data) setSettings(res.data);
+    else setSettings((s) => (s ? { ...s, autoPlay: enabled } : s));
     await sendToActiveTab({ type: "SET_AUTO_PLAY", enabled });
+    void refresh();
   };
 
   const onDelay = async (value: number) => {
@@ -99,7 +101,13 @@ export function App() {
   }
 
   const analyzing = state.buddyState === "ANALYZING";
-  const automationDisabled = !state.site?.automationAvailable;
+  const boardReady = state.site?.boardDetected && state.site?.supported;
+  const autoHint =
+    !boardReady
+      ? "Open an active game to use Auto Play"
+      : !state.isOurTurn && settings.autoPlay
+        ? "Waiting for your turn"
+        : undefined;
 
   return (
     <div className="app-shell">
@@ -129,7 +137,7 @@ export function App() {
       <AutoPlayControl
         enabled={settings.autoPlay}
         onChange={(v) => void onAutoPlay(v)}
-        disabled={automationDisabled}
+        hint={autoHint}
       />
 
       <SpeedSlider

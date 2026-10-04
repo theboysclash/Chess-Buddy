@@ -7,6 +7,7 @@ interface SiteStatusProps {
 export function SiteStatus({ site }: SiteStatusProps) {
   const supported = site?.supported ?? false;
   const board = site?.boardDetected ?? false;
+  const name = site?.name ?? "No page";
   const status = !site
     ? "Unknown"
     : supported
@@ -17,7 +18,7 @@ export function SiteStatus({ site }: SiteStatusProps) {
 
   return (
     <div className="site-footer">
-      <span>Current site</span>
+      <span>{name}</span>
       <span>
         {status}
         {supported && board ? " · Board detected" : ""}

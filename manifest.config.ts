@@ -22,7 +22,13 @@ export default defineManifest({
     "128": "public/icons/icon-128.png",
   },
   permissions: ["storage", "activeTab"],
-  host_permissions: ["http://localhost/*", "https://localhost/*"],
+  host_permissions: [
+    "http://localhost/*",
+    "https://localhost/*",
+    "https://chess.com/*",
+    "https://*.chess.com/*",
+    "https://lichess.org/*",
+  ],
   content_scripts: [
     {
       matches: ["<all_urls>"],

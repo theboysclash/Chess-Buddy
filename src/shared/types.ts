@@ -38,6 +38,8 @@ export interface EngineSettings {
   skillLevel?: number;
   depthCap?: number;
   nodesCap?: number;
+  uciElo?: number;
+  limitStrength?: boolean;
 }
 
 export interface AnalysisSettings {

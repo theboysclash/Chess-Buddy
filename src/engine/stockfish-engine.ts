@@ -153,6 +153,12 @@ export class StockfishWorkerEngine implements ChessEngine {
       if (engineCfg.skillLevel !== undefined) {
         this.worker.postMessage(`setoption name Skill Level value ${engineCfg.skillLevel}`);
       }
+      if (engineCfg.limitStrength && engineCfg.uciElo) {
+        this.worker.postMessage("setoption name UCI_LimitStrength value true");
+        this.worker.postMessage(`setoption name UCI_Elo value ${engineCfg.uciElo}`);
+      } else {
+        this.worker.postMessage("setoption name UCI_LimitStrength value false");
+      }
       const multi = settings.strength <= 6 ? 3 : 1;
       this.worker.postMessage(`setoption name MultiPV value ${multi}`);
       this.worker.postMessage(`position fen ${position.fen}`);
