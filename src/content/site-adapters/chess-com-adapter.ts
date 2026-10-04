@@ -7,6 +7,12 @@ import {
   piecesToFen,
   readBoardFen,
 } from "../dom-board";
+import {
+  executeChessComMoveViaPage,
+  getChessComMainWorldFen,
+  requestChessComFen,
+  subscribeChessComFen,
+} from "../chess-com-bridge";
 
 export class ChessComAdapter implements SiteAdapter {
   id = "chesscom";
@@ -40,7 +46,8 @@ export class ChessComAdapter implements SiteAdapter {
     const board = this.board();
     if (!board) return null;
 
-    const apiFen = readBoardFen(board);
+    const mainWorldFen = getChessComMainWorldFen();
+    const apiFen = mainWorldFen ?? readBoardFen(board);
     const turn = this.readTurn();
     const fen =
       apiFen ??
@@ -83,26 +90,11 @@ export class ChessComAdapter implements SiteAdapter {
   }
 
   async executeMove(move: ChessMove): Promise<boolean> {
+    const pageOk = await executeChessComMoveViaPage(move);
+    if (pageOk) return true;
+
     const board = this.board();
     if (!board) return false;
-
-    const wc = board as HTMLElement & {
-      game?: { move: (m: { from: string; to: string; promotion?: string }) => boolean };
-    };
-    if (wc.game?.move) {
-      try {
-        return Boolean(
-          wc.game.move({
-            from: move.from,
-            to: move.to,
-            promotion: move.promotion ?? "q",
-          }),
-        );
-      } catch {
-        /* fall through to clicks */
-      }
-    }
-
     const fromOk = clickSquare(board, move.from);
     if (!fromOk) return false;
     await delay(80);
@@ -139,10 +131,13 @@ export class ChessComAdapter implements SiteAdapter {
     }
     emitIfChanged();
     const interval = window.setInterval(emitIfChanged, 2500);
+    requestChessComFen();
+    const unsubFen = subscribeChessComFen(() => schedule());
     return () => {
       observer.disconnect();
       if (debounce) clearTimeout(debounce);
       window.clearInterval(interval);
+      unsubFen();
     };
   }
 

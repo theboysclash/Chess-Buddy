@@ -21,7 +21,7 @@ export default defineManifest({
     "48": "public/icons/icon-48.png",
     "128": "public/icons/icon-128.png",
   },
-  permissions: ["storage", "activeTab"],
+  permissions: ["storage", "activeTab", "offscreen"],
   host_permissions: [
     "http://localhost/*",
     "https://localhost/*",
@@ -30,6 +30,12 @@ export default defineManifest({
     "https://lichess.org/*",
   ],
   content_scripts: [
+    {
+      matches: ["https://chess.com/*", "https://*.chess.com/*"],
+      js: ["src/content/page/chess-com-main-world.ts"],
+      run_at: "document_idle",
+      world: "MAIN",
+    },
     {
       matches: ["<all_urls>"],
       js: ["src/content/content.ts"],

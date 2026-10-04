@@ -129,6 +129,13 @@ export type ExtensionMessage =
   | { type: "STATE_UPDATE"; state: TabGameState }
   | { type: "SETTINGS_UPDATE"; settings: UserSettings }
   | { type: "ANALYSIS_RESULT"; result: AnalysisResult | null; error?: string }
+  | {
+      type: "ANALYZE_FEN";
+      fen: string;
+      strength: number;
+      topMovesCount: 1 | 2 | 3;
+      engineSettings: EngineSettings;
+    }
   | { type: "PING" }
   | { type: "PONG" };
 

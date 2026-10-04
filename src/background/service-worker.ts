@@ -1,8 +1,9 @@
 import { onMessage } from "../shared/messaging";
 import { loadSettings, saveSettings, subscribeSettings } from "../shared/storage";
 import { setDebugMode, logger } from "../shared/logger";
-import type { MessageResponse, TabGameState, UserSettings } from "../shared/types";
+import type { AnalysisResult, MessageResponse, TabGameState, UserSettings } from "../shared/types";
 import { DEFAULT_SETTINGS } from "../shared/constants";
+import { ensureOffscreenDocument } from "./offscreen-manager";
 
 const tabStates = new Map<number, TabGameState>();
 let settings: UserSettings = DEFAULT_SETTINGS;
@@ -111,9 +112,47 @@ onMessage(async (message, sender): Promise<MessageResponse> => {
     }
 
     case "STOP_ANALYSIS": {
+      await chrome.runtime
+        .sendMessage({ target: "offscreen", type: "OFFSCREEN_STOP" })
+        .catch(() => undefined);
       const id = await activeTabId(tabId);
       if (id) await notifyTab(id, { type: "STOP_ANALYSIS" });
       return { ok: true };
+    }
+
+    case "ANALYZE_FEN": {
+      try {
+        await ensureOffscreenDocument();
+      } catch (error) {
+        logger.error("Offscreen setup failed", error);
+        return { ok: false, error: "Engine failed to start" };
+      }
+
+      const offscreenResponse = (await chrome.runtime.sendMessage({
+        target: "offscreen",
+        type: "OFFSCREEN_ANALYZE",
+        fen: message.fen,
+        strength: message.strength,
+        topMovesCount: message.topMovesCount,
+        engineSettings: message.engineSettings,
+      })) as MessageResponse<AnalysisResult>;
+
+      if (!offscreenResponse?.ok) {
+        return {
+          ok: false,
+          error: offscreenResponse?.error ?? "Analysis failed",
+        };
+      }
+
+      if (tabId && offscreenResponse.data) {
+        setTabState(tabId, {
+          analysis: offscreenResponse.data,
+          buddyState: "MOVE_READY",
+          statusMessage: "Best move ready",
+        });
+      }
+
+      return offscreenResponse;
     }
 
     case "STATE_UPDATE": {

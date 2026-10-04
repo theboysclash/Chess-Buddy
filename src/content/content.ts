@@ -12,6 +12,7 @@ import {
 } from "./analysis-scheduler";
 import { LocalTestAdapter } from "./site-adapters/local-test-adapter";
 import { ChessComAdapter } from "./site-adapters/chess-com-adapter";
+import { initChessComBridge } from "./chess-com-bridge";
 import { LichessAdapter } from "./site-adapters/lichess-adapter";
 import { GenericAdapter } from "./site-adapters/generic-adapter";
 import type { SiteAdapter } from "./site-adapters/base-adapter";
@@ -85,7 +86,8 @@ function onAnalysisPhase(
   void pushState(
     {
       buddyState: "ERROR",
-      statusMessage: "Analysis unavailable",
+      statusMessage:
+        payload instanceof Error ? payload.message : "Analysis failed",
       lastError: payload instanceof Error ? payload.message : "Analysis failed",
       analysis: lastState?.analysis ?? null,
     },
@@ -161,6 +163,7 @@ function handleAnalysisReady(): void {
 async function init(): Promise<void> {
   await refreshSettings();
   activeAdapter = pickAdapter();
+  if (activeAdapter.id === "chesscom") initChessComBridge();
   logger.debug("Adapter selected", activeAdapter.id);
 
   let lastKey: string | null = null;
