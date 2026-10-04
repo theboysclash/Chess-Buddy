@@ -111,7 +111,23 @@ export class ChessComAdapter implements SiteAdapter {
 
   onBoardChange(callback: (position: ChessPosition | null) => void): () => void {
     const board = this.board();
-    const observer = new MutationObserver(() => callback(this.getPosition()));
+    let lastFen: string | null = null;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+
+    const emitIfChanged = () => {
+      const position = this.getPosition();
+      const fen = position?.fen ?? null;
+      if (fen === lastFen) return;
+      lastFen = fen;
+      callback(position);
+    };
+
+    const schedule = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(emitIfChanged, 300);
+    };
+
+    const observer = new MutationObserver(schedule);
     if (board) {
       const root = board.shadowRoot ?? board;
       observer.observe(root, {
@@ -121,11 +137,11 @@ export class ChessComAdapter implements SiteAdapter {
         attributeFilter: ["class", "data-fen"],
       });
     }
-    observer.observe(document.body, { childList: true, subtree: true });
-    callback(this.getPosition());
-    const interval = window.setInterval(() => callback(this.getPosition()), 800);
+    emitIfChanged();
+    const interval = window.setInterval(emitIfChanged, 2500);
     return () => {
       observer.disconnect();
+      if (debounce) clearTimeout(debounce);
       window.clearInterval(interval);
     };
   }

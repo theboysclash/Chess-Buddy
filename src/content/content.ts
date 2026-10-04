@@ -3,13 +3,25 @@ import { loadSettings } from "../shared/storage";
 import { logger } from "../shared/logger";
 import { buildTabState } from "./chess-state";
 import { AutoPlayController } from "./move-executor";
-import { analyzeInPage, stopAnalysis } from "./local-engine";
+import {
+  forceAnalysis,
+  positionKey,
+  resetAnalysisScheduler,
+  scheduleAnalysis,
+  shouldScheduleAnalysis,
+} from "./analysis-scheduler";
 import { LocalTestAdapter } from "./site-adapters/local-test-adapter";
 import { ChessComAdapter } from "./site-adapters/chess-com-adapter";
 import { LichessAdapter } from "./site-adapters/lichess-adapter";
 import { GenericAdapter } from "./site-adapters/generic-adapter";
 import type { SiteAdapter } from "./site-adapters/base-adapter";
-import type { ExtensionMessage, MessageResponse, TabGameState, UserSettings } from "../shared/types";
+import type {
+  AnalysisResult,
+  ExtensionMessage,
+  MessageResponse,
+  TabGameState,
+  UserSettings,
+} from "../shared/types";
 
 const adapters: SiteAdapter[] = [
   new LocalTestAdapter(),
@@ -22,8 +34,7 @@ const autoPlay = new AutoPlayController();
 let settings: UserSettings | null = null;
 let activeAdapter: SiteAdapter | null = null;
 let lastState: TabGameState | null = null;
-let lastAnalyzedFen: string | null = null;
-let analysisGeneration = 0;
+let lastPublishedPositionKey: string | null = null;
 
 function pickAdapter(): SiteAdapter {
   const host = location.hostname;
@@ -40,7 +51,52 @@ async function refreshSettings(): Promise<UserSettings> {
   return settings;
 }
 
-async function pushState(partial?: Partial<TabGameState>): Promise<void> {
+function onAnalysisPhase(
+  phase: "start" | "success" | "error",
+  payload?: unknown,
+): void {
+  if (!settings) return;
+
+  if (phase === "start") {
+    void pushState(
+      {
+        buddyState: "ANALYZING",
+        statusMessage: "Analyzing position",
+        analysis: lastState?.analysis ?? null,
+      },
+      { allowAnalysis: false },
+    );
+    return;
+  }
+
+  if (phase === "success") {
+    const result = payload as AnalysisResult;
+    void pushState(
+      {
+        buddyState: "MOVE_READY",
+        statusMessage: "Best move ready",
+        analysis: result,
+      },
+      { allowAnalysis: false },
+    ).then(() => handleAnalysisReady());
+    return;
+  }
+
+  void pushState(
+    {
+      buddyState: "ERROR",
+      statusMessage: "Analysis unavailable",
+      lastError: payload instanceof Error ? payload.message : "Analysis failed",
+      analysis: lastState?.analysis ?? null,
+    },
+    { allowAnalysis: false },
+  );
+}
+
+async function pushState(
+  partial?: Partial<TabGameState>,
+  options?: { allowAnalysis?: boolean },
+): Promise<void> {
   if (!activeAdapter || !settings) return;
   const site = activeAdapter.getSiteInfo();
   const position = activeAdapter.getPosition();
@@ -53,57 +109,30 @@ async function pushState(partial?: Partial<TabGameState>): Promise<void> {
   const state: TabGameState = {
     ...base,
     ...partial,
-    analysis: partial?.analysis ?? lastState?.analysis ?? null,
+    analysis:
+      partial && "analysis" in partial
+        ? partial.analysis ?? null
+        : lastState?.analysis ?? null,
     autoPlayActive: settings.autoPlay,
     updatedAt: Date.now(),
   };
   lastState = state;
   await sendToBackground({ type: "STATE_UPDATE", state });
 
+  const allowAnalysis = options?.allowAnalysis ?? true;
   const fen = position?.fen;
-  const shouldAnalyze =
-    settings.autoAnalyze &&
-    fen &&
-    !position?.isGameOver &&
-    state.buddyState !== "UNSUPPORTED" &&
-    fen !== lastAnalyzedFen;
-
-  if (shouldAnalyze) {
-    lastAnalyzedFen = fen;
-    void runAnalysis(fen);
+  if (!allowAnalysis || !fen || position?.isGameOver || state.buddyState === "UNSUPPORTED") {
+    return;
   }
-}
 
-async function runAnalysis(fen: string): Promise<void> {
-  if (!settings) return;
-  const generation = ++analysisGeneration;
-  await stopAnalysis();
+  const key = positionKey(fen);
+  if (key === lastPublishedPositionKey && lastState.analysis && partial?.buddyState !== "ERROR") {
+    return;
+  }
+  lastPublishedPositionKey = key;
 
-  await pushState({
-    buddyState: "ANALYZING",
-    statusMessage: "Analyzing position",
-    analysis: null,
-  });
-
-  try {
-    const result = await analyzeInPage(fen, settings);
-    if (generation !== analysisGeneration) return;
-
-    await pushState({
-      buddyState: "MOVE_READY",
-      statusMessage: "Best move ready",
-      analysis: result,
-    });
-    handleAnalysisReady();
-  } catch (error) {
-    logger.error("In-page analysis failed", error);
-    if (generation !== analysisGeneration) return;
-    lastAnalyzedFen = null;
-    await pushState({
-      buddyState: "ERROR",
-      statusMessage: "Analysis unavailable",
-      lastError: error instanceof Error ? error.message : "Unknown error",
-    });
+  if (shouldScheduleAnalysis(fen, settings)) {
+    scheduleAnalysis(fen, settings, onAnalysisPhase);
   }
 }
 
@@ -117,11 +146,14 @@ function handleAnalysisReady(): void {
     analysis: lastState.analysis,
     onStop: (message) => {
       void sendToBackground({ type: "SET_AUTO_PLAY", enabled: false });
-      void pushState({
-        buddyState: "ERROR",
-        statusMessage: message,
-        autoPlayActive: false,
-      });
+      void pushState(
+        {
+          buddyState: "ERROR",
+          statusMessage: message,
+          autoPlayActive: false,
+        },
+        { allowAnalysis: false },
+      );
     },
   });
 }
@@ -131,19 +163,25 @@ async function init(): Promise<void> {
   activeAdapter = pickAdapter();
   logger.debug("Adapter selected", activeAdapter.id);
 
-  activeAdapter.onBoardChange(() => {
-    const fen = activeAdapter?.getPosition()?.fen ?? null;
-    if (fen && fen !== lastAnalyzedFen) {
-      void pushState();
-    } else {
-      void pushState();
+  let lastKey: string | null = null;
+  activeAdapter.onBoardChange((position) => {
+    const fen = position?.fen;
+    if (!fen) {
+      void pushState(undefined, { allowAnalysis: false });
+      return;
     }
+    const key = positionKey(fen);
+    if (key === lastKey) return;
+    lastKey = key;
+    lastPublishedPositionKey = null;
+    void pushState();
   });
 
   chrome.storage.onChanged.addListener((_changes, area) => {
     if (area !== "local") return;
     void refreshSettings().then(() => {
-      lastAnalyzedFen = null;
+      resetAnalysisScheduler();
+      lastPublishedPositionKey = null;
       void pushState();
     });
   });
@@ -164,7 +202,8 @@ async function handleMessage(message: ExtensionMessage): Promise<MessageResponse
       return { ok };
     }
     case "REFRESH_TAB": {
-      lastAnalyzedFen = null;
+      resetAnalysisScheduler();
+      lastPublishedPositionKey = null;
       await pushState();
       return { ok: true, data: lastState };
     }
@@ -179,11 +218,14 @@ async function handleMessage(message: ExtensionMessage): Promise<MessageResponse
       if (!message.enabled) autoPlay.stop();
       else autoPlay.reset();
       settings = { ...(await loadSettings()), autoPlay: message.enabled };
-      await pushState({
-        autoPlayActive: message.enabled,
-        statusMessage: message.enabled ? "Auto Play active" : "Manual move mode",
-        buddyState: message.enabled ? "AUTO_PLAYING" : lastState?.buddyState,
-      });
+      await pushState(
+        {
+          autoPlayActive: message.enabled,
+          statusMessage: message.enabled ? "Auto Play active" : "Manual move mode",
+          buddyState: message.enabled ? "AUTO_PLAYING" : lastState?.buddyState,
+        },
+        { allowAnalysis: false },
+      );
       if (message.enabled && lastState?.analysis && lastState.position) {
         handleAnalysisReady();
       }
@@ -191,18 +233,13 @@ async function handleMessage(message: ExtensionMessage): Promise<MessageResponse
     }
     case "SET_STRENGTH":
     case "SET_TOP_MOVES":
-    case "STOP_ANALYSIS": {
-      if (message.type === "STOP_ANALYSIS") await stopAnalysis();
-      lastAnalyzedFen = null;
-      settings = await loadSettings();
-      const fen = activeAdapter?.getPosition()?.fen;
-      if (fen) void runAnalysis(fen);
-      return { ok: true };
-    }
+    case "STOP_ANALYSIS":
     case "TRIGGER_ANALYSIS": {
-      lastAnalyzedFen = null;
+      settings = await loadSettings();
+      resetAnalysisScheduler();
+      lastPublishedPositionKey = null;
       const fen = activeAdapter?.getPosition()?.fen;
-      if (fen) void runAnalysis(fen);
+      if (fen) forceAnalysis(fen, settings, onAnalysisPhase);
       return { ok: true };
     }
     default:
