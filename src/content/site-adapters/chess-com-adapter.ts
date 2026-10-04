@@ -5,6 +5,7 @@ import {
   collectPieces,
   findBoardElement,
   piecesToFen,
+  readBoardFen,
 } from "../dom-board";
 
 export class ChessComAdapter implements SiteAdapter {
@@ -39,15 +40,18 @@ export class ChessComAdapter implements SiteAdapter {
     const board = this.board();
     if (!board) return null;
 
-    const pieces = collectPieces(board);
+    const apiFen = readBoardFen(board);
     const turn = this.readTurn();
-    const fen = piecesToFen(pieces, turn);
+    const fen =
+      apiFen ??
+      piecesToFen(collectPieces(board), turn);
+
     if (!fen) return null;
 
     const gameOver = this.isGameOver();
     return {
       fen,
-      turn,
+      turn: fen.includes(" w ") ? "w" : "b",
       isGameOver: gameOver,
       result: gameOver ? "complete" : undefined,
     };
@@ -114,12 +118,12 @@ export class ChessComAdapter implements SiteAdapter {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ["class"],
+        attributeFilter: ["class", "data-fen"],
       });
     }
     observer.observe(document.body, { childList: true, subtree: true });
     callback(this.getPosition());
-    const interval = window.setInterval(() => callback(this.getPosition()), 1500);
+    const interval = window.setInterval(() => callback(this.getPosition()), 800);
     return () => {
       observer.disconnect();
       window.clearInterval(interval);

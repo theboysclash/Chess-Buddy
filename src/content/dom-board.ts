@@ -15,13 +15,59 @@ const PIECE_MAP: Record<string, string> = {
   bk: "k",
 };
 
+type BoardElement = HTMLElement & {
+  game?: { getFEN?: () => string; fen?: string };
+  getFEN?: () => string;
+};
+
 export function findBoardElement(): HTMLElement | null {
-  return (
-    document.querySelector<HTMLElement>("wc-chess-board") ??
-    document.querySelector<HTMLElement>("chess-board") ??
-    document.querySelector<HTMLElement>(".board") ??
-    document.querySelector<HTMLElement>("#board-single")
-  );
+  const candidates = [
+    document.querySelector<BoardElement>("wc-chess-board"),
+    document.querySelector<BoardElement>("chess-board"),
+    document.querySelector<BoardElement>('[data-cy="board"]'),
+    document.querySelector<BoardElement>(".board"),
+    document.querySelector<BoardElement>("#board-single"),
+  ].filter(Boolean) as BoardElement[];
+
+  for (const board of candidates) {
+    if (readBoardFen(board)) return board;
+  }
+  return candidates[0] ?? null;
+}
+
+export function readBoardFen(board: HTMLElement): string | null {
+  const el = board as BoardElement;
+  const raw =
+    el.game?.getFEN?.() ??
+    el.game?.fen ??
+    el.getFEN?.() ??
+    board.getAttribute("data-fen") ??
+    board.getAttribute("data-position");
+
+  return normalizeFen(raw);
+}
+
+export function normalizeFen(raw: string | null | undefined): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const fen = raw.trim().replace(/\s+/g, " ");
+  if (!fen) return null;
+  try {
+    const chess = new Chess(fen);
+    return chess.fen();
+  } catch {
+    const parts = fen.split(" ");
+    if (parts.length < 2) return null;
+    const board = parts[0];
+    const turn = parts[1] === "b" ? "b" : "w";
+    const castling = parts[2] && parts[2] !== "-" ? parts[2] : "-";
+    const ep = parts[3] && parts[3] !== "-" ? parts[3] : "-";
+    const candidate = `${board} ${turn} ${castling} ${ep} 0 1`;
+    try {
+      return new Chess(candidate).fen();
+    } catch {
+      return null;
+    }
+  }
 }
 
 function boardRoot(board: HTMLElement): Document | ShadowRoot | HTMLElement {
@@ -40,15 +86,26 @@ export function squareClassFromUci(square: string): string {
   return `square-${file}${rank}`;
 }
 
+function pieceCodeFromClass(className: string): string | null {
+  const tokens = className.split(/\s+/);
+  for (const token of tokens) {
+    if (PIECE_MAP[token]) return token;
+    const compact = /^([wb])([pnbrqk])$/i.exec(token);
+    if (compact) return `${compact[1].toLowerCase()}${compact[2].toLowerCase()}`;
+  }
+  return null;
+}
+
 export function collectPieces(board: HTMLElement): { square: string; fenChar: string }[] {
   const root = boardRoot(board);
-  const pieces = root.querySelectorAll(".piece");
+  const pieces = root.querySelectorAll(".piece, [class*='square-']");
   const found: { square: string; fenChar: string }[] = [];
 
   pieces.forEach((piece) => {
-    const classes = piece.className.split(/\s+/);
-    const squareClass = classes.find((c) => c.startsWith("square-"));
-    const pieceClass = classes.find((c) => PIECE_MAP[c]);
+    const classes = piece.className;
+    if (!classes.includes("square-") && !classes.includes("piece")) return;
+    const squareClass = classes.split(/\s+/).find((c) => c.startsWith("square-"));
+    const pieceClass = pieceCodeFromClass(classes);
     if (!squareClass || !pieceClass) return;
     const coords = parseChessComSquareClass(squareClass);
     if (!coords) return;
@@ -97,13 +154,7 @@ export function piecesToFen(
     rows.push(row);
   }
 
-  const fen = `${rows.join("/")} ${turn} ${castling} - 0 1`;
-  try {
-    new Chess(fen);
-    return fen;
-  } catch {
-    return `${rows.join("/")} ${turn} - - 0 1`;
-  }
+  return normalizeFen(`${rows.join("/")} ${turn} ${castling} - 0 1`);
 }
 
 export function clickSquare(board: HTMLElement, square: string): boolean {

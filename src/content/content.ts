@@ -3,6 +3,7 @@ import { loadSettings } from "../shared/storage";
 import { logger } from "../shared/logger";
 import { buildTabState } from "./chess-state";
 import { AutoPlayController } from "./move-executor";
+import { analyzeInPage, stopAnalysis } from "./local-engine";
 import { LocalTestAdapter } from "./site-adapters/local-test-adapter";
 import { ChessComAdapter } from "./site-adapters/chess-com-adapter";
 import { LichessAdapter } from "./site-adapters/lichess-adapter";
@@ -21,6 +22,8 @@ const autoPlay = new AutoPlayController();
 let settings: UserSettings | null = null;
 let activeAdapter: SiteAdapter | null = null;
 let lastState: TabGameState | null = null;
+let lastAnalyzedFen: string | null = null;
+let analysisGeneration = 0;
 
 function pickAdapter(): SiteAdapter {
   const host = location.hostname;
@@ -57,6 +60,51 @@ async function pushState(partial?: Partial<TabGameState>): Promise<void> {
   lastState = state;
   await sendToBackground({ type: "STATE_UPDATE", state });
 
+  const fen = position?.fen;
+  const shouldAnalyze =
+    settings.autoAnalyze &&
+    fen &&
+    !position?.isGameOver &&
+    state.buddyState !== "UNSUPPORTED" &&
+    fen !== lastAnalyzedFen;
+
+  if (shouldAnalyze) {
+    lastAnalyzedFen = fen;
+    void runAnalysis(fen);
+  }
+}
+
+async function runAnalysis(fen: string): Promise<void> {
+  if (!settings) return;
+  const generation = ++analysisGeneration;
+  await stopAnalysis();
+
+  await pushState({
+    buddyState: "ANALYZING",
+    statusMessage: "Analyzing position",
+    analysis: null,
+  });
+
+  try {
+    const result = await analyzeInPage(fen, settings);
+    if (generation !== analysisGeneration) return;
+
+    await pushState({
+      buddyState: "MOVE_READY",
+      statusMessage: "Best move ready",
+      analysis: result,
+    });
+    handleAnalysisReady();
+  } catch (error) {
+    logger.error("In-page analysis failed", error);
+    if (generation !== analysisGeneration) return;
+    lastAnalyzedFen = null;
+    await pushState({
+      buddyState: "ERROR",
+      statusMessage: "Analysis unavailable",
+      lastError: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 }
 
 function handleAnalysisReady(): void {
@@ -84,12 +132,20 @@ async function init(): Promise<void> {
   logger.debug("Adapter selected", activeAdapter.id);
 
   activeAdapter.onBoardChange(() => {
-    void pushState();
+    const fen = activeAdapter?.getPosition()?.fen ?? null;
+    if (fen && fen !== lastAnalyzedFen) {
+      void pushState();
+    } else {
+      void pushState();
+    }
   });
 
   chrome.storage.onChanged.addListener((_changes, area) => {
     if (area !== "local") return;
-    void refreshSettings().then(() => pushState());
+    void refreshSettings().then(() => {
+      lastAnalyzedFen = null;
+      void pushState();
+    });
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -108,6 +164,7 @@ async function handleMessage(message: ExtensionMessage): Promise<MessageResponse
       return { ok };
     }
     case "REFRESH_TAB": {
+      lastAnalyzedFen = null;
       await pushState();
       return { ok: true, data: lastState };
     }
@@ -130,6 +187,22 @@ async function handleMessage(message: ExtensionMessage): Promise<MessageResponse
       if (message.enabled && lastState?.analysis && lastState.position) {
         handleAnalysisReady();
       }
+      return { ok: true };
+    }
+    case "SET_STRENGTH":
+    case "SET_TOP_MOVES":
+    case "STOP_ANALYSIS": {
+      if (message.type === "STOP_ANALYSIS") await stopAnalysis();
+      lastAnalyzedFen = null;
+      settings = await loadSettings();
+      const fen = activeAdapter?.getPosition()?.fen;
+      if (fen) void runAnalysis(fen);
+      return { ok: true };
+    }
+    case "TRIGGER_ANALYSIS": {
+      lastAnalyzedFen = null;
+      const fen = activeAdapter?.getPosition()?.fen;
+      if (fen) void runAnalysis(fen);
       return { ok: true };
     }
     default:

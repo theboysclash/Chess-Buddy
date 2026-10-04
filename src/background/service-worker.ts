@@ -1,22 +1,11 @@
-import { StockfishWorkerEngine } from "../engine/stockfish-engine";
-import { mergeAnalysisResult } from "../engine/analysis";
-import { getEngineSettingsForStrength } from "../engine/difficulty";
 import { onMessage } from "../shared/messaging";
 import { loadSettings, saveSettings, subscribeSettings } from "../shared/storage";
 import { setDebugMode, logger } from "../shared/logger";
 import type { MessageResponse, TabGameState, UserSettings } from "../shared/types";
 import { DEFAULT_SETTINGS } from "../shared/constants";
 
-const engine = new StockfishWorkerEngine();
 const tabStates = new Map<number, TabGameState>();
 let settings: UserSettings = DEFAULT_SETTINGS;
-let engineReady = false;
-
-async function ensureEngine(): Promise<void> {
-  if (engineReady) return;
-  await engine.initialize();
-  engineReady = true;
-}
 
 function defaultTabState(): TabGameState {
   return {
@@ -45,40 +34,23 @@ function setTabState(tabId: number, partial: Partial<TabGameState>): TabGameStat
   return next;
 }
 
-async function analyzeForTab(tabId: number, fen: string): Promise<void> {
-  setTabState(tabId, { buddyState: "ANALYZING", statusMessage: "Analyzing position" });
+async function notifyTab(tabId: number, message: { type: string }): Promise<void> {
   try {
-    await ensureEngine();
-    const result = await engine.analyze(
-      { fen, turn: fen.includes(" w ") ? "w" : "b", isGameOver: false },
-      {
-        strength: settings.strength,
-        engine: getEngineSettingsForStrength(settings.strength, settings.engineSettings),
-        topMovesCount: settings.topMovesCount,
-      },
-    );
-    const merged = mergeAnalysisResult(fen, result);
-    setTabState(tabId, {
-      buddyState: "MOVE_READY",
-      analysis: merged,
-      statusMessage: "Best move ready",
-    });
+    await chrome.tabs.sendMessage(tabId, message);
   } catch (error) {
-    logger.error("Analysis failed", error);
-    setTabState(tabId, {
-      buddyState: "ERROR",
-      statusMessage: "Analysis unavailable",
-      lastError: error instanceof Error ? error.message : "Unknown error",
-    });
+    logger.warn("Tab message failed", error);
   }
+}
+
+async function activeTabId(tabId?: number): Promise<number | undefined> {
+  if (tabId) return tabId;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id;
 }
 
 async function init(): Promise<void> {
   settings = await loadSettings();
   setDebugMode(settings.debugMode);
-  if (settings.autoAnalyze) {
-    void ensureEngine().catch((e) => logger.warn("Engine preload failed", e));
-  }
 }
 
 subscribeSettings((next) => {
@@ -101,38 +73,28 @@ onMessage(async (message, sender): Promise<MessageResponse> => {
     }
 
     case "GET_STATE": {
-      const active = await chrome.tabs.query({ active: true, currentWindow: true });
-      const id = tabId ?? active[0]?.id;
+      const id = await activeTabId(tabId);
       if (!id) return { ok: true, data: defaultTabState() };
       return { ok: true, data: getTabState(id) };
     }
 
     case "SET_STRENGTH": {
       settings = await saveSettings({ strength: message.value });
-      const active = await chrome.tabs.query({ active: true, currentWindow: true });
-      const id = tabId ?? active[0]?.id;
-      if (id) {
-        const state = getTabState(id);
-        if (state.position?.fen) void analyzeForTab(id, state.position.fen);
-      }
+      const id = await activeTabId(tabId);
+      if (id) await notifyTab(id, { type: "TRIGGER_ANALYSIS" });
       return { ok: true, data: settings };
     }
 
     case "SET_TOP_MOVES": {
       settings = await saveSettings({ topMovesCount: message.value });
-      const active = await chrome.tabs.query({ active: true, currentWindow: true });
-      const id = tabId ?? active[0]?.id;
-      if (id) {
-        const state = getTabState(id);
-        if (state.position?.fen) void analyzeForTab(id, state.position.fen);
-      }
+      const id = await activeTabId(tabId);
+      if (id) await notifyTab(id, { type: "TRIGGER_ANALYSIS" });
       return { ok: true, data: settings };
     }
 
     case "SET_AUTO_PLAY": {
       settings = await saveSettings({ autoPlay: message.enabled });
-      const active = await chrome.tabs.query({ active: true, currentWindow: true });
-      const id = tabId ?? active[0]?.id;
+      const id = await activeTabId(tabId);
       if (id) {
         setTabState(id, {
           autoPlayActive: message.enabled,
@@ -148,40 +110,15 @@ onMessage(async (message, sender): Promise<MessageResponse> => {
       return { ok: true, data: settings };
     }
 
-    case "ANALYZE_POSITION": {
-      if (!tabId) return { ok: false, error: "No tab" };
-      setTabState(tabId, {
-        position: {
-          fen: message.fen,
-          turn: message.fen.includes(" w ") ? "w" : "b",
-          isGameOver: false,
-        },
-      });
-      void analyzeForTab(tabId, message.fen);
-      return { ok: true };
-    }
-
     case "STOP_ANALYSIS": {
-      await engine.stop();
-      if (tabId) setTabState(tabId, { buddyState: "READY", statusMessage: "Ready" });
+      const id = await activeTabId(tabId);
+      if (id) await notifyTab(id, { type: "STOP_ANALYSIS" });
       return { ok: true };
     }
 
     case "STATE_UPDATE": {
       if (!tabId) return { ok: false, error: "No tab" };
-      const prev = getTabState(tabId);
       const next = setTabState(tabId, message.state);
-      const fenChanged = next.position?.fen !== prev.position?.fen;
-      const needsInitial =
-        next.position?.fen && !prev.analysis && next.buddyState !== "UNSUPPORTED";
-      if (
-        settings.autoAnalyze &&
-        next.position?.fen &&
-        (fenChanged || needsInitial) &&
-        next.buddyState !== "UNSUPPORTED"
-      ) {
-        void analyzeForTab(tabId, next.position.fen);
-      }
       return { ok: true, data: next };
     }
 
